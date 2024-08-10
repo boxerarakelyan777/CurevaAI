@@ -72,14 +72,14 @@ export default function Home() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
+    <div className="flex flex-col min-h-screen bg-gray-100">
       <Head>
         <title>My AI App</title>
         <meta name="description" content="AI-powered home remedy suggestions" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <main className="flex flex-col items-center justify-center w-full flex-1 px-20 text-center">
+      <main className="flex-grow flex flex-col items-center justify-center w-full px-20 text-center">
         <h1 className="text-4xl font-bold text-blue-600">
           Welcome to Our AI-Powered Home Remedy App
         </h1>
@@ -91,21 +91,23 @@ export default function Home() {
         </button>
       </main>
 
+      {/* Chatbot Button */}
+      <div className="fixed bottom-32 right-8 z-10">
+        <button
+          onClick={() => setShowChatbot(!showChatbot)}
+          className="bg-blue-600 text-white py-3 px-6 rounded-full hover:bg-blue-700 shadow-xl hover:shadow-2xl transition-all duration-300 ease-in-out transform hover:-translate-y-1"
+        >
+          Chat with Us
+        </button>
+      </div>
+
       <footer className="w-full h-24 flex items-center justify-center border-t">
         <p>&copy; 2024 My AI App. All rights reserved.</p>
       </footer>
 
-      {/* Chatbot Button */}
-      <button
-        onClick={() => setShowChatbot(!showChatbot)}
-        className="fixed bottom-5 right-5 bg-blue-600 text-white py-2 px-4 rounded-full hover:bg-blue-700"
-      >
-        Chat with Us
-      </button>
-
       {/* Chatbot Popup */}
       {showChatbot && (
-        <div className={`fixed bottom-16 right-5 bg-white border border-gray-300 rounded-lg shadow-lg p-4 flex flex-col transition-all duration-300 ease-in-out ${
+        <div className={`fixed bottom-44 right-8 bg-white border border-gray-300 rounded-lg shadow-2xl p-4 flex flex-col transition-all duration-300 ease-in-out z-20 ${
           isExpanded ? 'w-96 h-[32rem]' : 'w-80 h-96'
         }`}>
           <div className="flex justify-between items-center mb-2">
