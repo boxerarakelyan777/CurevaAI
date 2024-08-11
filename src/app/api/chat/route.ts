@@ -111,6 +111,11 @@ export const POST = async (request: Request) => {
     return new NextResponse(stream);
   } catch (error) {
     console.error('Error in chat API:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    // Log more details about the error
+    if (error instanceof Error) {
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+    }
+    return NextResponse.json({ error: 'Internal Server Error', details: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 };

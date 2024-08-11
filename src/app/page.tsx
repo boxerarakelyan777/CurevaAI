@@ -1,7 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Head from "next/head";
+import { useAuth } from '../hooks/useAuth';
+import Navbar from '../components/Navbar';
+import { collection, doc, setDoc, getDoc } from 'firebase/firestore';
+import { db } from '../firebaseConfig';
 
 const languages = [
   { code: 'en', name: 'English' },
@@ -25,46 +29,125 @@ const initialMessages = {
   th: "วันนี้ฉันจะช่วยคุณอย่างไรดี?",
 };
 
+const getPersonalizedGreeting = (name: string | null | undefined, language: keyof typeof initialMessages) => {
+  const greetings = {
+    en: `Hello ${name || 'there'}! How can I help you today?`,
+    de: `Hallo ${name || 'dort'}! Wie kann ich Ihnen heute helfen?`,
+    fr: `Bonjour ${name || 'là'}! Comment puis-je vous aider aujourd'hui ?`,
+    it: `Ciao ${name || 'lì'}! Come posso aiutarti oggi?`,
+    pt: `Olá ${name || 'aí'}! Como posso ajudar você hoje?`,
+    hi: `नमस्ते ${name || 'वहाँ'}! आज मैं आपकी कैसे मदद कर सकता हूँ?`,
+    es: `¡Hola ${name || 'allí'}! ¿Cómo puedo ayudarte hoy?`,
+    th: `สวัสดี ${name || 'ที่นั่น'}! วันนี้ฉันจะช่วยคุณอย่างไรดี?`,
+  };
+  return greetings[language] || greetings.en;
+};
+
 export default function Home() {
   const [showChatbot, setShowChatbot] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [messages, setMessages] = useState<{ role: string; content: string }[]>([
-    { role: "bot", content: initialMessages['en'] },
-  ]);
+  const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
   const [input, setInput] = useState("");
-  const [selectedLanguage, setSelectedLanguage] = useState('en');
+  const [selectedLanguage, setSelectedLanguage] = useState<keyof typeof initialMessages>('en');
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      loadUserChat();
+    } else {
+      setMessages([{ role: "bot", content: initialMessages[selectedLanguage] }]);
+    }
+  }, [user]);
+
+  const loadUserChat = async () => {
+    if (user) {
+      const chatRef = doc(collection(db, 'userChats'), user.uid);
+      const chatDoc = await getDoc(chatRef);
+      if (chatDoc.exists()) {
+        const chatData = chatDoc.data();
+        setMessages(chatData.messages || [{ role: "bot", content: getPersonalizedGreeting(user.displayName, chatData.language || 'en') }]);
+        setSelectedLanguage(chatData.language || 'en');
+      } else {
+        setMessages([{ role: "bot", content: getPersonalizedGreeting(user.displayName, selectedLanguage) }]);
+      }
+    }
+  };
+
+  const saveUserChat = async (messagesToSave: { role: string; content: string }[]) => {
+    if (user) {
+      const chatRef = doc(collection(db, 'userChats'), user.uid);
+      await setDoc(chatRef, { messages: messagesToSave, language: selectedLanguage }, { merge: true });
+    }
+  };
+
+  const clearChat = () => {
+    const initialMessage = { 
+      role: "bot", 
+      content: user 
+        ? getPersonalizedGreeting(user.displayName, selectedLanguage) 
+        : initialMessages[selectedLanguage] 
+    };
+    setMessages([initialMessage]);
+    if (user) {
+      saveUserChat([initialMessage]);
+    }
+  };
 
   const handleSendMessage = async () => {
     if (!input.trim()) return;
 
-    const newMessages = [...messages, { role: "user", content: input }];
-    setMessages(newMessages);
+    const newUserMessage = { role: "user", content: input };
+    const updatedMessages = [...messages, newUserMessage];
+    setMessages(updatedMessages);
     setInput("");
 
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify([
-        { role: "user", content: input },
-        { role: "system", content: `Respond in ${languages.find(lang => lang.code === selectedLanguage)?.name}` }
-      ]),
-    });
-
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let accumulatedResponse = "";
-
-    while (true) {
-      const { done, value } = await reader?.read()!;
-      if (done) break;
-
-      const chunk = decoder.decode(value);
-      accumulatedResponse += chunk;
+    if (user) {
+      await saveUserChat(updatedMessages);
     }
 
-    setMessages((prevMessages) => [...prevMessages, { role: "bot", content: accumulatedResponse }]);
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify([
+          newUserMessage,
+          { role: "system", content: `Respond in ${languages.find(lang => lang.code === selectedLanguage)?.name}${user && user.displayName ? `. The user's name is ${user.displayName}.` : ''}` }
+        ]),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let accumulatedResponse = "";
+
+      while (true) {
+        const { done, value } = await reader?.read()!;
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        accumulatedResponse += chunk;
+        console.log('Received chunk:', chunk);
+      }
+
+      console.log('Full response:', accumulatedResponse);
+
+      const newBotMessage = { role: "bot", content: accumulatedResponse };
+      const finalMessages = [...updatedMessages, newBotMessage];
+      setMessages(finalMessages);
+
+      if (user) {
+        await saveUserChat(finalMessages);
+      }
+    } catch (error) {
+      console.error('Error in handleSendMessage:', error);
+      // You might want to set an error message in the state here
+      // to display to the user that something went wrong
+    }
   };
 
   const toggleChatbotSize = () => {
@@ -97,41 +180,55 @@ export default function Home() {
   };
 
   const handleLanguageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newLang = e.target.value;
+    const newLang = e.target.value as keyof typeof initialMessages;
     setSelectedLanguage(newLang);
-    setMessages(prevMessages => [
-      { role: "bot", content: initialMessages[newLang as keyof typeof initialMessages] },
-      ...prevMessages.slice(1)
-    ]);
+    
+    const newInitialMessage = { 
+      role: "bot", 
+      content: user 
+        ? getPersonalizedGreeting(user.displayName, newLang) 
+        : initialMessages[newLang] 
+    };
+
+    setMessages(prevMessages => [newInitialMessage, ...prevMessages.slice(1)]);
+
+    if (user) {
+      saveUserChat([newInitialMessage, ...messages.slice(1)]);
+    }
   };
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-100">
-      <Head>
-        <title>My AI App</title>
-        <meta name="description" content="AI-powered home remedy suggestions" />
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
+    <Navbar />
+    <Head>
+      <title>My AI App</title>
+      <meta name="description" content="AI-powered home remedy suggestions" />
+      <link rel="icon" href="/favicon.ico" />
+    </Head>
 
-      <main className="flex-grow flex flex-col items-center justify-center w-full px-20 text-center">
-        <h1 className="text-4xl font-bold text-blue-600">
-          Welcome to Our AI-Powered Home Remedy App
-        </h1>
-        <p className="mt-4 text-lg text-gray-700">
-          Sign up to get on the waitlist and be the first to know when we launch!
-        </p>
+    <main className="flex-grow flex flex-col items-center justify-center w-full px-20 text-center">
+      <h1 className="text-4xl font-bold text-blue-600">
+        Welcome to Our AI-Powered Home Remedy App
+      </h1>
+      <p className="mt-4 text-lg text-gray-700">
+        {user ? `Hello, ${user.displayName || 'there'}!` : 'Sign up to get on the waitlist and be the first to know when we launch!'}
+      </p>
+      {!user && (
         <button className="mt-8 bg-blue-600 text-white py-2 px-4 rounded-full hover:bg-blue-700">
           Join the Waitlist
         </button>
-      </main>
+      )}
+    </main>
 
-      {/* Chatbot Button */}
-      <div className="fixed bottom-32 right-8 z-10">
+      {/* Chat Icon Button */}
+      <div className="fixed bottom-8 right-8 z-10">
         <button
           onClick={() => setShowChatbot(!showChatbot)}
-          className="bg-blue-600 text-white py-3 px-6 rounded-full hover:bg-blue-700 shadow-xl hover:shadow-2xl transition-all duration-300 ease-in-out transform hover:-translate-y-1"
+          className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 shadow-xl hover:shadow-2xl transition-all duration-300 ease-in-out transform hover:-translate-y-1"
         >
-          Chat with Us
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+          </svg>
         </button>
       </div>
 
@@ -141,26 +238,29 @@ export default function Home() {
 
       {/* Chatbot Popup */}
       {showChatbot && (
-        <div className={`fixed bottom-44 right-8 bg-white rounded-lg shadow-2xl flex flex-col transition-all duration-300 ease-in-out z-20 overflow-hidden ${
-          isExpanded ? 'w-96 h-[32rem]' : 'w-80 h-96'
+        <div className={`fixed bottom-24 right-8 bg-white rounded-lg shadow-2xl flex flex-col transition-all duration-300 ease-in-out z-20 overflow-hidden ${
+          isExpanded ? 'w-[28rem] h-[36rem]' : 'w-96 h-[28rem]'
         }`}>
           {/* Header */}
           <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-4 text-white">
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg font-bold">AI Assistant</h3>
-              <div className="flex items-center space-x-2">
-                <button onClick={toggleChatbotSize} className="text-white hover:text-gray-200 transition-colors">
-                  {isExpanded ? '🗗' : '🗖'}
-                </button>
-                <button onClick={() => setShowChatbot(false)} className="text-white hover:text-gray-200 transition-colors">
-                  &times;
-                </button>
-              </div>
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-bold">AI Assistant</h3>
+            <div className="flex items-center space-x-2">
+              <button onClick={clearChat} className="text-white hover:text-gray-200 transition-colors">
+                🗑️
+              </button>
+              <button onClick={toggleChatbotSize} className="text-white hover:text-gray-200 transition-colors">
+                {isExpanded ? '🗗' : '🗖'}
+              </button>
+              <button onClick={() => setShowChatbot(false)} className="text-white hover:text-gray-200 transition-colors">
+                &times;
+              </button>
             </div>
+          </div>
             <select
               value={selectedLanguage}
               onChange={handleLanguageChange}
-              className="mt-2 w-full p-1 bg-white bg-opacity-20 border border-white border-opacity-30 rounded text-sm text-white"
+              className="mt-2 w-full p-1 bg-white bg-opacity-20 border border-white border-opacity-30 rounded text-sm text-black"
             >
               {languages.map((lang) => (
                 <option key={lang.code} value={lang.code}>
