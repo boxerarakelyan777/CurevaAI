@@ -1,16 +1,38 @@
 "use client";
 
-
 import React, { useState } from "react";
 import Head from "next/head";
+
+const languages = [
+  { code: 'en', name: 'English' },
+  { code: 'de', name: 'Deutsch' },
+  { code: 'fr', name: 'Français' },
+  { code: 'it', name: 'Italiano' },
+  { code: 'pt', name: 'Português' },
+  { code: 'hi', name: 'हिन्दी' },
+  { code: 'es', name: 'Español' },
+  { code: 'th', name: 'ไทย' },
+];
+
+const initialMessages = {
+  en: "How can I help you today?",
+  de: "Wie kann ich Ihnen heute helfen?",
+  fr: "Comment puis-je vous aider aujourd'hui ?",
+  it: "Come posso aiutarti oggi?",
+  pt: "Como posso ajudar você hoje?",
+  hi: "आज मैं आपकी कैसे मदद कर सकता हूँ?",
+  es: "¿Cómo puedo ayudarte hoy?",
+  th: "วันนี้ฉันจะช่วยคุณอย่างไรดี?",
+};
 
 export default function Home() {
   const [showChatbot, setShowChatbot] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [messages, setMessages] = useState<{ role: string; content: string }[]>([
-    { role: "bot", content: "How can I help you today?" },
+    { role: "bot", content: initialMessages['en'] },
   ]);
   const [input, setInput] = useState("");
+  const [selectedLanguage, setSelectedLanguage] = useState('en');
 
   const handleSendMessage = async () => {
     if (!input.trim()) return;
@@ -24,7 +46,10 @@ export default function Home() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify([{ role: "user", content: input }]),
+      body: JSON.stringify([
+        { role: "user", content: input },
+        { role: "system", content: `Respond in ${languages.find(lang => lang.code === selectedLanguage)?.name}` }
+      ]),
     });
 
     const reader = response.body?.getReader();
@@ -71,6 +96,15 @@ export default function Home() {
     });
   };
 
+  const handleLanguageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newLang = e.target.value;
+    setSelectedLanguage(newLang);
+    setMessages(prevMessages => [
+      { role: "bot", content: initialMessages[newLang as keyof typeof initialMessages] },
+      ...prevMessages.slice(1)
+    ]);
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-100">
       <Head>
@@ -107,39 +141,73 @@ export default function Home() {
 
       {/* Chatbot Popup */}
       {showChatbot && (
-        <div className={`fixed bottom-44 right-8 bg-white border border-gray-300 rounded-lg shadow-2xl p-4 flex flex-col transition-all duration-300 ease-in-out z-20 ${
+        <div className={`fixed bottom-44 right-8 bg-white rounded-lg shadow-2xl flex flex-col transition-all duration-300 ease-in-out z-20 overflow-hidden ${
           isExpanded ? 'w-96 h-[32rem]' : 'w-80 h-96'
         }`}>
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="text-lg font-bold">Chatbot</h3>
-            <div>
-              <button onClick={toggleChatbotSize} className="mr-2 text-gray-500 hover:text-gray-700">
-                {isExpanded ? '🗗' : '🗖'}
-              </button>
-              <button onClick={() => setShowChatbot(false)} className="text-gray-500 hover:text-gray-700">&times;</button>
+          {/* Header */}
+          <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-4 text-white">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold">AI Assistant</h3>
+              <div className="flex items-center space-x-2">
+                <button onClick={toggleChatbotSize} className="text-white hover:text-gray-200 transition-colors">
+                  {isExpanded ? '🗗' : '🗖'}
+                </button>
+                <button onClick={() => setShowChatbot(false)} className="text-white hover:text-gray-200 transition-colors">
+                  &times;
+                </button>
+              </div>
             </div>
+            <select
+              value={selectedLanguage}
+              onChange={handleLanguageChange}
+              className="mt-2 w-full p-1 bg-white bg-opacity-20 border border-white border-opacity-30 rounded text-sm text-white"
+            >
+              {languages.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.name}
+                </option>
+              ))}
+            </select>
           </div>
-          <div className="flex-1 overflow-y-auto mb-4">
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.map((message, index) => (
-              <div key={index} className={`mb-2 ${message.role === "bot" ? "text-left" : "text-right"}`}>
-                <span className={`inline-block text-sm p-2 rounded-lg ${
-                  message.role === "bot" ? "bg-gray-100 text-gray-700" : "bg-blue-100 text-blue-600"
+              <div key={index} className={`flex ${message.role === "bot" ? "justify-start" : "justify-end"}`}>
+                <div className={`max-w-[75%] p-3 rounded-lg ${
+                  message.role === "bot" 
+                    ? "bg-gray-100 text-gray-800" 
+                    : "bg-blue-500 text-white"
                 }`}>
-                  {formatMessage(message.content)}
-                </span>
+                  <div className="whitespace-pre-wrap break-words">{formatMessage(message.content)}</div>
+                </div>
               </div>
             ))}
           </div>
-          <input
-            type="text"
-            className="w-full p-2 border border-gray-300 rounded-lg"
-            placeholder="Type your message..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleSendMessage();
-            }}
-          />
+
+          {/* Input area */}
+          <div className="p-4 bg-gray-50 border-t border-gray-200">
+            <div className="relative">
+              <input
+                type="text"
+                className="w-full p-2 pr-10 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Type your message..."
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSendMessage();
+                }}
+              />
+              <button 
+                onClick={handleSendMessage}
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 text-blue-500 hover:text-blue-600"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

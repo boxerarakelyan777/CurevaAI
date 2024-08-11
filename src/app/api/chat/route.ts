@@ -77,9 +77,15 @@ export const POST = async (request: Request) => {
       ...data,
     ];
 
+    // The last system message will contain the language instruction
+    const languageInstruction = messages[messages.length - 1].content;
+
     const result = await groq.chat.completions.create({
       model: "llama-3.1-70b-versatile",
-      messages: messages, // Use the messages array directly
+      messages: [
+        ...messages.slice(0, -1), // All messages except the last one
+        { role: "system", content: `${systemPrompt}\n\n${languageInstruction}` }
+      ],
       stream: true,
     });
 
