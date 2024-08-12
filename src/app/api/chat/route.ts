@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Groq from "groq-sdk";
 import dotenv from "dotenv";
+import { LRUCache } from 'lru-cache';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -59,6 +60,12 @@ Thank you for using [Your Support Chatbot Name]. I'm here to ensure you get the 
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+// Initialize a cache
+const cache = new LRUCache<string, string>({
+  max: 100, // Maximum number of items to store in the cache
+  ttl: 1000 * 60 * 5, // Time to live: 5 minutes
+});
+
 export const POST = async (request: Request) => {
   try {
     const data = await request.json();
@@ -78,16 +85,44 @@ export const POST = async (request: Request) => {
     ];
 
     // The last system message will contain the language instruction
-    const languageInstruction = messages[messages.length - 1].content;
+    const lastMessage = messages[messages.length - 1];
+    const isRegenerationRequest = lastMessage.role === "system" && lastMessage.content.includes("The previous response was not satisfactory");
+
+    let languageInstruction = "";
+    if (isRegenerationRequest) {
+      languageInstruction = lastMessage.content;
+      // Remove the last message (regeneration instruction) from the messages array
+      messages.pop();
+    } else {
+      languageInstruction = lastMessage.content;
+    }
+
+    // Create a cache key from the messages
+    const cacheKey = JSON.stringify(messages);
+
+    // Check if we have a cached response
+    const cachedResponse = cache.get(cacheKey);
+    if (cachedResponse && !isRegenerationRequest) {
+      return new NextResponse(cachedResponse);
+    }
 
     const result = await groq.chat.completions.create({
-      model: "llama-3.1-70b-versatile",
+      model: "llama-3.1-70b-versatile", // Consider using a faster model if available
       messages: [
         ...messages.slice(0, -1), // All messages except the last one
-        { role: "system", content: `${systemPrompt}\n\n${languageInstruction}` }
+        { 
+          role: "system", 
+          content: isRegenerationRequest
+            ? `${systemPrompt}\n\n${languageInstruction}\nPlease provide an improved and more detailed answer.`
+            : `${systemPrompt}\n\n${languageInstruction}`
+        }
       ],
       stream: true,
+      max_tokens: 150, // Limit the response length
+      temperature: 0.7, // Adjust for faster responses (lower value) or more creative responses (higher value)
     });
+
+    let fullResponse = '';
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -96,6 +131,7 @@ export const POST = async (request: Request) => {
           for await (const chunk of result) {
             const content = chunk.choices[0]?.delta?.content;
             if (content) {
+              fullResponse += content;
               const text = encoder.encode(content);
               controller.enqueue(text);
             }
@@ -103,6 +139,10 @@ export const POST = async (request: Request) => {
         } catch (error) {
           controller.error(error);
         } finally {
+          // Cache the full response if it's not a regeneration request
+          if (!isRegenerationRequest) {
+            cache.set(cacheKey, fullResponse);
+          }
           controller.close();
         }
       },
@@ -111,11 +151,6 @@ export const POST = async (request: Request) => {
     return new NextResponse(stream);
   } catch (error) {
     console.error('Error in chat API:', error);
-    // Log more details about the error
-    if (error instanceof Error) {
-      console.error('Error message:', error.message);
-      console.error('Error stack:', error.stack);
-    }
-    return NextResponse.json({ error: 'Internal Server Error', details: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 };

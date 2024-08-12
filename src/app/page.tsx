@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Head from "next/head";
 import { useAuth } from '../hooks/useAuth';
 import Navbar from '../components/Navbar';
@@ -50,6 +50,9 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [selectedLanguage, setSelectedLanguage] = useState<keyof typeof initialMessages>('en');
   const { user } = useAuth();
+  const [feedbacks, setFeedbacks] = useState<{[key: number]: 'up' | 'down' | null}>({});
+  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
+  const messageContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (user) {
@@ -197,6 +200,69 @@ export default function Home() {
     }
   };
 
+  const scrollToBottom = () => {
+    if (messageContainerRef.current) {
+      messageContainerRef.current.scrollTop = messageContainerRef.current.scrollHeight;
+    }
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const handleFeedback = async (index: number, type: 'up' | 'down') => {
+    setFeedbacks(prev => ({ ...prev, [index]: type }));
+    
+    if (type === 'down') {
+      setRegeneratingIndex(index);
+      try {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify([
+            { role: "user", content: messages[index - 1].content },
+            { role: "system", content: `Respond in ${languages.find(lang => lang.code === selectedLanguage)?.name}${user && user.displayName ? `. The user's name is ${user.displayName}.` : ''}. The previous response was not satisfactory. Please provide a better answer.` }
+          ]),
+        });
+  
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+  
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let accumulatedResponse = "";
+  
+        while (true) {
+          const { done, value } = await reader?.read()!;
+          if (done) break;
+  
+          const chunk = decoder.decode(value);
+          accumulatedResponse += chunk;
+        }
+  
+        const updatedMessages = [...messages];
+        updatedMessages[index] = { ...updatedMessages[index], content: accumulatedResponse };
+        setMessages(updatedMessages);
+  
+        // Reset the feedback for this message
+        setFeedbacks(prev => ({ ...prev, [index]: null }));
+  
+        if (user) {
+          await saveUserChat(updatedMessages);
+        }
+
+        scrollToBottom(); // Add this line to scroll after regeneration
+      } catch (error) {
+        console.error('Error regenerating response:', error);
+      } finally {
+        setRegeneratingIndex(null);
+      }
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-100">
     <Navbar />
@@ -271,7 +337,10 @@ export default function Home() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div 
+            ref={messageContainerRef}
+            className="flex-1 overflow-y-auto p-4 space-y-4"
+          >
             {messages.map((message, index) => (
               <div key={index} className={`flex ${message.role === "bot" ? "justify-start" : "justify-end"}`}>
                 <div className={`max-w-[75%] p-3 rounded-lg ${
@@ -280,6 +349,27 @@ export default function Home() {
                     : "bg-blue-500 text-white"
                 }`}>
                   <div className="whitespace-pre-wrap break-words">{formatMessage(message.content)}</div>
+                  {message.role === "bot" && (
+                    <div className="mt-2 flex justify-end space-x-2">
+                      <button 
+                        onClick={() => handleFeedback(index, 'up')} 
+                        className={`p-1 rounded ${feedbacks[index] === 'up' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}
+                        disabled={feedbacks[index] === 'down'}
+                      >
+                        👍
+                      </button>
+                      <button 
+                        onClick={() => handleFeedback(index, 'down')} 
+                        className={`p-1 rounded ${feedbacks[index] === 'down' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}
+                        disabled={feedbacks[index] === 'up'}
+                      >
+                        👎
+                      </button>
+                      {regeneratingIndex === index && (
+                        <span className="text-sm text-gray-500">Regenerating...</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
