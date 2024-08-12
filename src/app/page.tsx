@@ -265,12 +265,7 @@ export default function Home() {
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-100">
-    <Navbar />
-    <Head>
-      <title>My AI App</title>
-      <meta name="description" content="AI-powered home remedy suggestions" />
-      <link rel="icon" href="/favicon.ico" />
-    </Head>
+ 
 
     <main className="flex-grow flex flex-col items-center justify-center w-full px-20 text-center">
       <h1 className="text-4xl font-bold text-blue-600">
@@ -299,7 +294,7 @@ export default function Home() {
       </div>
 
       <footer className="w-full h-24 flex items-center justify-center border-t">
-        <p>&copy; 2024 My AI App. All rights reserved.</p>
+        <p>&copy; 2024 CurevaAI. All rights reserved.</p>
       </footer>
 
       {/* Chatbot Popup */}
