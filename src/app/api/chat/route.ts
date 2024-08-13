@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import Groq from "groq-sdk";
-import dotenv from "dotenv";
 import { LRUCache } from 'lru-cache';
-
-// Load environment variables from .env file
-dotenv.config();
 
 const systemPrompt = `
 Welcome to CuveraAI! I'm here to help you with any questions you have and provide useful resources to guide you.
@@ -58,7 +54,9 @@ Escalation:
 Thank you for using [Your Support Chatbot Name]. I'm here to ensure you get the answers and help you need!
 `;
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY || ''
+});
 
 // Initialize a cache
 const cache = new LRUCache<string, string>({
